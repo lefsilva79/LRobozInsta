@@ -1,4 +1,4 @@
-// Date (UTC): 2024-01-01 18:45:28
+// Date (UTC): 2025-01-01 20:25:17
 // Author: lefsilva79
 
 package com.lr.lrobozinsta.ui
@@ -21,13 +21,10 @@ import com.lr.lrobozinsta.service.MainServiceConnection
 import com.lr.lrobozinsta.data.Store
 import com.lr.lrobozinsta.data.Item
 import com.lr.lrobozinsta.utils.NotificationHelper
+import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-
-
-// Current Date and Time (UTC): 2025-01-01 19:00:50
-// Current User's Login: lefsilva79
 
 @Composable
 fun MainScreen(
@@ -37,8 +34,20 @@ fun MainScreen(
 ) {
     var numberValue by remember { mutableStateOf("") }
     val items by Store.get().items.collectAsState()
-    var isRunning by remember { mutableStateOf(false) }
+    var isServiceRunning by remember { mutableStateOf(false) }
+    var isInCorrectApp by remember { mutableStateOf(false) }
     val notificationHelper = remember { NotificationHelper(context) }
+
+    // Monitora o estado do serviço e do app atual
+    LaunchedEffect(Unit) {
+        while (true) {
+            serviceConnection.service?.let { service ->
+                isServiceRunning = service.isRunning()
+                isInCorrectApp = service.isInTargetApp()
+            }
+            delay(500)
+        }
+    }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -67,47 +76,79 @@ fun MainScreen(
                 OutlinedTextField(
                     value = numberValue,
                     onValueChange = { newValue ->
-                        if (newValue.isEmpty() || newValue.all { it.isDigit() }) {
-                            numberValue = newValue
+                        if (!isServiceRunning || (isServiceRunning && isInCorrectApp)) {
+                            if (newValue.isEmpty() || newValue.all { it.isDigit() }) {
+                                numberValue = newValue
+                            }
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true,
-                    textStyle = TextStyle(fontSize = 24.sp)
+                    textStyle = TextStyle(fontSize = 24.sp),
+                    enabled = !isServiceRunning || (isServiceRunning && isInCorrectApp)
                 )
             }
 
-            Button(
-                onClick = {
-                    serviceConnection.service?.let { service ->
-                        if (isRunning) {
-                            service.stop()
-                        } else {
-                            service.start()
-                            if (numberValue.isNotEmpty()) {
-                                notificationHelper.showValueDetectedNotification(numberValue)
-                            }
-                        }
-                        isRunning = !isRunning
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = hasRoot && numberValue.isNotEmpty()
+            // Botões em Row
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text(
-                    text = if (isRunning) "Stop" else "Start",
-                    style = TextStyle(fontSize = 18.sp)
-                )
+                // Botão Start
+                Button(
+                    onClick = {
+                        serviceConnection.service?.let { service ->
+                            service.setTargetValue(numberValue)  // Define o valor primeiro
+                            service.start()                      // Depois inicia o serviço
+                            isServiceRunning = true
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    enabled = hasRoot && numberValue.isNotEmpty() && !isServiceRunning
+                ) {
+                    Text(
+                        text = if (isServiceRunning && !isInCorrectApp)
+                            "Aguardando..."
+                        else "Start",
+                        style = TextStyle(fontSize = 18.sp)
+                    )
+                }
+
+                // Botão Stop
+                Button(
+                    onClick = {
+                        serviceConnection.service?.let { service ->
+                            service.stop()
+                            isServiceRunning = false
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    enabled = isServiceRunning,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text(
+                        text = "Stop",
+                        style = TextStyle(fontSize = 18.sp)
+                    )
+                }
             }
 
             // Status de detecção
-            if (isRunning && numberValue.isNotEmpty()) {
+            if (isServiceRunning) {
                 Text(
-                    text = "Detectando: $ $numberValue",
+                    text = if (!isInCorrectApp)
+                        "Aguardando abertura do app TestValues..."
+                    else "Detectando: $ $numberValue",
                     style = TextStyle(
                         fontSize = 18.sp,
-                        color = MaterialTheme.colorScheme.primary
+                        color = if (!isInCorrectApp)
+                            MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.primary
                     ),
                     modifier = Modifier
                         .padding(vertical = 8.dp)
@@ -127,6 +168,7 @@ fun MainScreen(
         }
     }
 }
+
 
 @Composable
 private fun ItemCard(item: Item) {
