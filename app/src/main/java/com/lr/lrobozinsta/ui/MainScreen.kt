@@ -1,9 +1,10 @@
-// Date (UTC): 2025-01-01 20:25:17
+// Date (UTC): 2025-01-02 03:49:58
 // Author: lefsilva79
 
 package com.lr.lrobozinsta.ui
 
 import android.content.Context
+import android.util.Log
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -36,18 +37,45 @@ fun MainScreen(
     val items by Store.get().items.collectAsState()
     var isServiceRunning by remember { mutableStateOf(false) }
     var isInCorrectApp by remember { mutableStateOf(false) }
+    var isSearching by remember { mutableStateOf(false) }
     val notificationHelper = remember { NotificationHelper(context) }
 
-    // Monitora o estado do serviço e do app atual
+    LaunchedEffect(serviceConnection.service) {
+        while (true) {
+            val stillSearching = serviceConnection.service?.isStillSearching() ?: false
+            Log.d("SearchState", """
+                ===== DEBUG SEARCH STATE =====
+                Still Searching: $stillSearching
+                Is Service Running: ${serviceConnection.service?.isRunning()}
+                Current isSearching: $isSearching
+                Current isServiceRunning: $isServiceRunning
+                =============================
+            """.trimIndent())
+
+            isSearching = stillSearching
+            if (!stillSearching) {
+                isServiceRunning = false
+                Log.d("SearchState", "Not searching anymore, setting isServiceRunning to false")
+            }
+            delay(200)
+        }
+    }
+
     LaunchedEffect(Unit) {
         while (true) {
             serviceConnection.service?.let { service ->
-                isServiceRunning = service.isRunning()
+                val running = service.isRunning()
+                if (isServiceRunning != running) {
+                    Log.d("ButtonState", "=== MUDANÇA DE ESTADO DOS BOTÕES ===")
+                    Log.d("ButtonState", "Service running: $isServiceRunning -> $running")
+                    isServiceRunning = running
+                }
                 isInCorrectApp = service.isInTargetApp()
             }
             delay(500)
         }
     }
+
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -58,7 +86,6 @@ fun MainScreen(
                 .fillMaxSize()
                 .padding(16.dp)
         ) {
-            // Input de números com símbolo "$"
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -76,7 +103,7 @@ fun MainScreen(
                 OutlinedTextField(
                     value = numberValue,
                     onValueChange = { newValue ->
-                        if (!isServiceRunning || (isServiceRunning && isInCorrectApp)) {
+                        if (!isSearching) {
                             if (newValue.isEmpty() || newValue.all { it.isDigit() }) {
                                 numberValue = newValue
                             }
@@ -86,47 +113,48 @@ fun MainScreen(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true,
                     textStyle = TextStyle(fontSize = 24.sp),
-                    enabled = !isServiceRunning || (isServiceRunning && isInCorrectApp)
+                    enabled = !isSearching
                 )
             }
 
-            // Botões em Row
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Botão Start
                 Button(
                     onClick = {
                         serviceConnection.service?.let { service ->
-                            service.setTargetValue(numberValue)  // Define o valor primeiro
-                            service.start()                      // Depois inicia o serviço
+                            Log.d("ButtonState", "Start button clicked")
+                            service.setTargetValue(numberValue)
+                            service.start()
                             isServiceRunning = true
+                            isSearching = true
+                            Log.d("ButtonState", "Service started, isSearching: $isSearching")
                         }
                     },
                     modifier = Modifier.weight(1f),
-                    enabled = hasRoot && numberValue.isNotEmpty() && !isServiceRunning
+                    enabled = hasRoot && numberValue.isNotEmpty() && !isSearching
                 ) {
                     Text(
-                        text = if (isServiceRunning && !isInCorrectApp)
-                            "Aguardando..."
-                        else "Start",
+                        text = "Start",
                         style = TextStyle(fontSize = 18.sp)
                     )
                 }
 
-                // Botão Stop
                 Button(
                     onClick = {
                         serviceConnection.service?.let { service ->
+                            Log.d("ButtonState", "Stop button clicked")
                             service.stop()
                             isServiceRunning = false
+                            isSearching = false
+                            Log.d("ButtonState", "Service stopped, isSearching: $isSearching")
                         }
                     },
                     modifier = Modifier.weight(1f),
-                    enabled = isServiceRunning,
+                    enabled = isServiceRunning && isSearching,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.error
                     )
@@ -138,7 +166,6 @@ fun MainScreen(
                 }
             }
 
-            // Status de detecção
             if (isServiceRunning) {
                 Text(
                     text = if (!isInCorrectApp)
@@ -168,7 +195,6 @@ fun MainScreen(
         }
     }
 }
-
 
 @Composable
 private fun ItemCard(item: Item) {

@@ -13,6 +13,7 @@ import android.content.pm.PackageManager
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import android.app.AlertDialog
+import android.util.Log
 import com.lr.lrobozinsta.service.MainService
 import com.lr.lrobozinsta.service.MainServiceConnection
 import com.lr.lrobozinsta.utils.RootManager
@@ -80,18 +81,33 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        bindService()
-    }
-
-    private fun bindService() {
-        val intent = Intent(this, MainService::class.java)
-        bindService(intent, serviceConnection, BIND_AUTO_CREATE)
+        if (!serviceConnection.isBound) {
+            val intent = Intent(this, MainService::class.java)
+            bindService(intent, serviceConnection, BIND_AUTO_CREATE)
+        }
     }
 
     override fun onStop() {
         super.onStop()
-        unbindService(serviceConnection)
+        // Só faz unbind se o serviço NÃO estiver procurando
+        if (serviceConnection.isBound) {
+            val isSearching = serviceConnection.service?.isStillSearching() ?: false
+            if (!isSearching) {
+                Log.d("MainActivity", "Unbinding service - not searching anymore")
+                unbindService(serviceConnection)
+            } else {
+                Log.d("MainActivity", "Keeping service bound - still searching")
+            }
+        }
     }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        if (serviceConnection.isBound) {
+            unbindService(serviceConnection)
+        }
+    }
+
 
     companion object {
         private const val PERMISSIONS_REQUEST_CODE = 123
